@@ -1,0 +1,183 @@
+import bpy #Imports Blender Python
+import math
+import numpy as np
+import os
+import json
+
+
+def clearScreen():
+    for o in bpy.context.scene.objects:
+        if o.type == 'MESH':
+            o.select_set(True)
+        else:
+            o.select_set(False)
+
+    # Call the operator only once
+    bpy.ops.object.delete()
+    
+def createRect(l,w,h):
+    bpy.ops.mesh.primitive_cube_add()
+    bpy.context.object.scale = (l, w, h)
+    cube = bpy.context.object
+    
+def createSphere(r):
+    bpy.ops.mesh.primitive_uv_sphere_add()
+    bpy.context.object.scale = [r,r,r]
+    sphere = bpy.context.object
+    
+def createCylinder(r, h):
+    bpy.ops.mesh.primitive_cylinder_add(radius=r, depth=h, enter_editmode=False, align='WORLD', location=(0, 0, 0), scale=(1, 1, 1))
+    cyl = bpy.context.object
+    
+def createShape(shape, parameters):
+    
+    print(shape)
+    if shape == "Sphere":
+        r = parameters[0]
+        createSphere(r)
+        
+    if shape == "Cubic":
+        l = parameters[0]
+        w = parameters[1]
+        h = parameters[2]
+        createRect(l,w,h)
+        
+    if shape == "Cylinder":
+        r = parameters[0]
+        h = parameters[1]
+        createCylinder(r, h)
+
+def rotate(point, angle_degrees, axis=(0,1,0)):
+    theta_degrees = angle_degrees
+    theta_radians = math.radians(theta_degrees)
+
+    rotated_point =  np.dot(rotation_matrix(axis, theta_radians), point)
+    
+    return rotated_point
+
+def rotation_matrix(axis, theta):
+    """
+    Return the rotation matrix associated with counterclockwise rotation about
+    the given axis by theta radians.
+    """
+    axis = np.asarray(axis)
+    axis = axis / math.sqrt(np.dot(axis, axis))
+    a = math.cos(theta / 2.0)
+    b, c, d = -axis * math.sin(theta / 2.0)
+    aa, bb, cc, dd = a * a, b * b, c * c, d * d
+    bc, ad, ac, ab, bd, cd = b * c, a * d, a * c, a * b, b * d, c * d
+    return np.array([[aa + bb - cc - dd, 2 * (bc + ad), 2 * (bd - ac)],
+                     [2 * (bc - ad), aa + cc - bb - dd, 2 * (cd + ab)],
+                     [2 * (bd + ac), 2 * (cd - ab), aa + dd - bb - cc]])
+
+def removeTokens(shapeSentence):
+
+        
+    shapeSentence = shapeSentence.replace("[CLS]", " ")
+    shapeSentence = shapeSentence.replace("{", " ")
+    shapeSentence = shapeSentence.replace("}", " ")
+    shapeSentence = shapeSentence.replace(" ", " ")
+    shapeSentence = shapeSentence.replace(",", " ")
+    shapeSentence = shapeSentence.split()
+
+    
+    for j in range(1, len(shapeSentence)):
+        shapeSentence[j] = float(shapeSentence[j])
+        
+    shape = shapeSentence[0]
+    p_i = shapeSentence[1:]
+    return shape, p_i
+
+def deleteAllObjects():
+    """
+    Deletes all objects in the current scene
+    """
+    deleteListObjects = ['MESH', 'CURVE', 'SURFACE', 'META', 'FONT', 'HAIR', 'POINTCLOUD', 'VOLUME', 'GPENCIL',
+                     'ARMATURE', 'LATTICE', 'EMPTY', 'LIGHT', 'LIGHT_PROBE', 'CAMERA', 'SPEAKER']
+
+    # Select all objects in the scene to be deleted:
+
+    for o in bpy.context.scene.objects:
+        for i in deleteListObjects:
+            if o.type == i:
+                o.select_set(False)
+            else:
+                o.select_set(True)
+    # Deletes all selected objects in the scene:
+
+    bpy.ops.object.delete() 
+
+
+with open("/Users/omoruyiatekha/Documents/GitHub/Referential Language for CAD/NLP_NERF_CAD/sentences.json", "r") as f:
+    generatedShape = json.load(f)
+
+
+    
+
+for index, shapes in enumerate(generatedShape):
+    #bpy.ops.outliner.item_activate(extend_range=True, deselect_all=True)
+    #bpy.ops.outliner.delete()
+
+    deleteAllObjects()
+    clearScreen()
+    
+    # Create Lighting
+    light_data = bpy.data.lights.new('light', type='SUN')
+    light = bpy.data.objects.new('light', light_data)
+    bpy.context.collection.objects.link(light)
+    light.location= (3, -4, 5)
+    light.data.energy=200.0
+
+    # Acquire Shape Sentence from Dataset
+    sentence = shapes
+    s, p = removeTokens(sentence)
+    createShape(s, p)
+    shape = bpy.context.active_object
+
+    # Camera Creation
+    cam_data = bpy.data.cameras.new('camera')
+    cam = bpy.data.objects.new('camera', cam_data)
+    cam.location=(25, 3, 20)
+
+    constraint =cam.constraints.new(type='TRACK_TO')
+    constraint.target=shape
+    bpy.context.collection.objects.link(cam)
+    
+    bpy.ops.object.shade_smooth()
+    
+    
+    #bpy.data.objects["Sphere"].active_material_index
+    
+
+
+    
+    
+    # Render Image
+    scene = bpy.context.scene
+    scene.camera = cam
+    scene.render.image_settings.file_format='PNG'
+    #bpy.context.scene.render.film_transparent = True
+    
+    mat = bpy.data.materials.new('MaterialName')
+    mat.metallic = 1
+    mat.roughness = 0.211
+
+    
+    #bpy.data.objects["Sphere"].active_material_index = 20
+    mat = bpy.data.materials['MaterialName']
+    shape.data.materials.append(mat)
+    shape.data.materials[0] = mat
+    
+    
+
+    for angle in range(300, 360, 60):
+        
+        
+        cam_location = cam.location
+        cam.location = rotate(cam_location, 10, axis=(0,0,1))
+        scene.render.filepath = "/Users/omoruyiatekha/Documents/GitHub/Referential Language for CAD/NLP_NERF_CAD/renders/" + str(index) + "_" + str(angle) + ".png"
+
+        #file = os.path.join('/Users/omoruyiatekha/Documents/blender/','blender_' + str(angle)+'.png')
+        #scene.render.filepath=file
+        
+        bpy.ops.render.render(write_still=1)
